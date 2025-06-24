@@ -36,6 +36,17 @@ class TemporalAttentionLayer2(torch.nn.Module):
 
 
   def forward(self, node_feature, edge_index, edge_feature, src_time_features, edge_time):
+    '''
+    无向图，边增加为双向
+    增加自闭环
+    :param node_feature:
+    :param edge_index:
+    :param edge_feature:
+    :param src_time_features:
+    :param edge_time:
+    :param mask:
+    :return:
+    '''
 
     if self.reverse_flag:
       edge_index, edge_feature, src_time_features, edge_time = self.reverse_edge(edge_index,
@@ -62,6 +73,9 @@ class TemporalAttentionLayer2(torch.nn.Module):
 
     res_att_sub = torch.sum(torch.multiply(q_mat, k_mat), dim=-1 )* self.scale   #[T, N]
 
+    '''
+        Softmax based on target node's id (edge_index_i). Store attention value in self.att.
+    '''
 
     scores = self.scatter_softmax(res_att_sub, node_i)
 
