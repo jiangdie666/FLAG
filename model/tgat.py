@@ -6,6 +6,7 @@ from modules.utils import MergeLayer_output, Feat_Process_Layer, drop_edge, Link
 from modules.embedding_module import get_embedding_module
 from modules.time_encoding import TimeEncode
 from model.gdn import graph_deviation_network
+from model.supconloss import SupConLoss
 import torch
 
 
@@ -22,9 +23,12 @@ class TGAT(torch.nn.Module):
         self.dropout = self.cfg.drop_out
         self.n_layers = self.cfg.n_layer
 
+        #self.mode = self.cfg.mode
 
         self.time_encoder = TimeEncode(dimension=self.dims)
-        self.embedding_module = get_embedding_module(time_encoder=self.time_encoder,
+        self.embedding_module_type = self.cfg.module_type
+        self.embedding_module = get_embedding_module(module_type=self.embedding_module_type,
+                                                     time_encoder=self.time_encoder,
                                                      n_layers=self.n_layers,
                                                      node_features_dims=self.dims,
                                                      edge_features_dims=self.dims,
@@ -40,6 +44,7 @@ class TGAT(torch.nn.Module):
 
 
         self.gdn = graph_deviation_network(self.cfg, device)
+        self.suploss = SupConLoss()
 
 
     def forward(self, src_org_edge_feat, src_edge_to_time, src_center_node_idx,dst_center_node_idx, src_neigh_edge, src_node_features,
@@ -47,6 +52,7 @@ class TGAT(torch.nn.Module):
         # apply tgat
         source_node_embedding = self.compute_temporal_embeddings(src_neigh_edge, src_edge_to_time,
                                                                                 src_org_edge_feat, src_node_features)
+        #print(source_node_embedding)
         root_embedding = source_node_embedding[src_center_node_idx, :]
         test_embedding = source_node_embedding[dst_center_node_idx, :]
 
@@ -62,10 +68,12 @@ class TGAT(torch.nn.Module):
 
 
 
-        anom_score = self.gdn(root_embedding,test_embedding, current_time, pre_labels)  # 异常检测分数
+        anom_score = self.gdn(root_embedding,test_embedding, current_time, pre_labels)  # 异常检测\
+        #print(anom_score)
         dev, group = self.gdn.dev_diff(torch.squeeze(anom_score), current_time, None)
-        logits = pos_out
 
+
+        # 节点原始索引对应分组
         
         # 样本增强
         aug_neigh_edge, aug_edge_to_time, aug_org_edge_feat = drop_edge(src_neigh_edge,src_edge_to_time,src_org_edge_feat,0.2)
@@ -74,14 +82,15 @@ class TGAT(torch.nn.Module):
         aug_node_embedding = aug_node_embedding[src_center_node_idx, :]
 
         prediction_dict = {}
-        prediction_dict['logits'] = logits
+        prediction_dict['logits'] = pos_out
         prediction_dict['anom_score'] = anom_score
         prediction_dict['time'] = current_time
         prediction_dict['root_embedding'] = torch.cat([root_embedding, aug_node_embedding], dim=0)
         prediction_dict['dst_embedding'] = torch.cat([test_embedding, test_node_embedding], dim=0)
         prediction_dict['group'] = group.clone().detach().repeat(2, 1)
+
         prediction_dict['dev'] = dev.clone().detach().repeat(2, 1)
-        # prediction_dict['group_test'] = group
+        prediction_dict['pre_lable'] = pre_labels
         # prediction_dict['embedding'] = root_embedding
         
         return prediction_dict
